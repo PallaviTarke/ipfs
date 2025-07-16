@@ -1,0 +1,416 @@
+version: "3.8"
+
+services:
+  # === Monitoring Services ===
+  loki:
+    image: grafana/loki:2.9.4
+    container_name: loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./loki/loki-config.yml:/etc/loki/local-config.yaml
+      - ./loki-data/chunks:/loki/chunks
+      - ./loki-data/rules:/loki/rules
+      - ./loki-data/index:/loki/index
+      - ./loki-data/compactor:/loki/compactor
+      - ./loki-data/wal:/loki/wal
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - ipfs-net
+
+  promtail:
+    image: grafana/promtail:2.9.4
+    container_name: promtail
+    ports:
+      - "9080:9080"
+    restart: always
+    command: -config.file=/etc/promtail/promtail.yaml
+    volumes:
+      - ./promtail/promtail-config.yml:/etc/promtail/promtail.yaml
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /etc/machine-id:/etc/machine-id:ro
+      - /etc/hostname:/etc/hostname:ro
+      - /etc/os-release:/etc/os-release:ro
+    networks:
+      - ipfs-net
+
+  prometheus:
+    image: prom/prometheus
+    container_name: prometheus
+    restart: always
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    networks:
+      - ipfs-net
+
+  grafana:
+    image: grafana/grafana
+    container_name: grafana
+    restart: always
+    volumes:
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3001:3000"
+    networks:
+      - ipfs-net
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.47.2
+    container_name: cadvisor
+    restart: always
+    ports:
+      - "8080:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    networks:
+      - ipfs-net
+
+  node_exporter:
+    image: prom/node-exporter
+    container_name: node_exporter
+    restart: always
+    ports:
+      - "9100:9100"
+    networks:
+      - ipfs-net
+
+  # === IPFS Nodes ===
+  ipfs1:
+    image: ipfs/go-ipfs:v0.18.1
+    container_name: ipfs1
+    ports:
+      - "4001:4001"
+      - "5001:5001"
+    volumes:
+      - ipfs1-data:/data/ipfs
+      - ./ipfs/swarm.key:/data/ipfs/swarm.key
+    networks:
+      - ipfs-net
+
+  ipfs2:
+    image: ipfs/go-ipfs:v0.18.1
+    container_name: ipfs2
+    ports:
+      - "4002:4001"
+      - "5002:5001"
+    volumes:
+      - ipfs2-data:/data/ipfs
+      - ./ipfs/swarm.key:/data/ipfs/swarm.key
+    networks:
+      - ipfs-net
+
+  ipfs3:
+    image: ipfs/go-ipfs:v0.18.1
+    container_name: ipfs3
+    ports:
+      - "4003:4001"
+      - "5003:5001"
+    volumes:
+      - ipfs3-data:/data/ipfs
+      - ./ipfs/swarm.key:/data/ipfs/swarm.key
+    networks:
+      - ipfs-net
+
+  ipfs4:
+    image: ipfs/go-ipfs:v0.18.1
+    container_name: ipfs4
+    ports:
+      - "4004:4001"
+      - "5004:5001"
+    volumes:
+      - ipfs4-data:/data/ipfs
+      - ./ipfs/swarm.key:/data/ipfs/swarm.key
+    networks:
+      - ipfs-net
+
+  # === IPFS Cluster ===
+  cluster0:
+    image: ipfs/ipfs-cluster:master-latest
+    container_name: cluster0
+    environment:
+      CLUSTER_SECRET: "f709a375442ef51086997b3063205956b0276c04159c922a40f6a531df0b8735"
+      CLUSTER_PEERNAME: "cluster0"
+      CLUSTER_IPFSHTTP_NODEMULTIADDRESS: "/dns4/ipfs1/tcp/5001"
+    entrypoint: ["/bin/sh", "/container-entrypoint.sh"]
+    volumes:
+      - ./ipfs-cluster/cluster-secret:/data/ipfs-cluster/secret
+      - ./ipfs-cluster/cluster0:/data/ipfs-cluster
+      - ./ipfs-cluster/cluster-entrypoint.sh:/container-entrypoint.sh
+    depends_on:
+      - ipfs1
+    ports:
+      - "9094:9094"
+    networks:
+      - ipfs-net
+
+  cluster1:
+    image: ipfs/ipfs-cluster:master-latest
+    container_name: cluster1
+    environment:
+      CLUSTER_SECRET: "f709a375442ef51086997b3063205956b0276c04159c922a40f6a531df0b8735"
+      CLUSTER_PEERNAME: "cluster1"
+      CLUSTER_IPFSHTTP_NODEMULTIADDRESS: "/dns4/ipfs2/tcp/5001"
+      CLUSTER_BOOTSTRAP: "/dns4/cluster0/tcp/9094/p2p/12D3KooWK3kou33Lut3hFuuNhzg5gt9qc3ZRHXa9yV3BZvvcMTLb"
+    entrypoint: ["/bin/sh", "/container-entrypoint.sh"]
+    volumes:
+      - ./ipfs-cluster/cluster-secret:/data/ipfs-cluster/secret
+      - ./ipfs-cluster/cluster1:/data/ipfs-cluster
+      - ./ipfs-cluster/cluster-entrypoint.sh:/container-entrypoint.sh
+    depends_on:
+      - ipfs2
+      - cluster0
+    ports:
+      - "9096:9094"
+    networks:
+      - ipfs-net
+
+  cluster2:
+    image: ipfs/ipfs-cluster:master-latest
+    container_name: cluster2
+    environment:
+      CLUSTER_SECRET: "f709a375442ef51086997b3063205956b0276c04159c922a40f6a531df0b8735"
+      CLUSTER_PEERNAME: "cluster2"
+      CLUSTER_IPFSHTTP_NODEMULTIADDRESS: "/dns4/ipfs3/tcp/5001"
+      CLUSTER_BOOTSTRAP: "/dns4/cluster0/tcp/9094/p2p/12D3KooWK3kou33Lut3hFuuNhzg5gt9qc3ZRHXa9yV3BZvvcMTLb"
+    entrypoint: ["/bin/sh", "/container-entrypoint.sh"]
+    volumes:
+      - ./ipfs-cluster/cluster-secret:/data/ipfs-cluster/secret
+      - ./ipfs-cluster/cluster2:/data/ipfs-cluster
+      - ./ipfs-cluster/cluster-entrypoint.sh:/container-entrypoint.sh
+    depends_on:
+      - ipfs3
+      - cluster0
+    ports:
+      - "9098:9094"
+    networks:
+      - ipfs-net
+
+  cluster3:
+    image: ipfs/ipfs-cluster:master-latest
+    container_name: cluster3
+    environment:
+      CLUSTER_SECRET: "f709a375442ef51086997b3063205956b0276c04159c922a40f6a531df0b8735"
+      CLUSTER_PEERNAME: "cluster3"
+      CLUSTER_IPFSHTTP_NODEMULTIADDRESS: "/dns4/ipfs4/tcp/5001"
+      CLUSTER_BOOTSTRAP: "/dns4/cluster0/tcp/9094/p2p/12D3KooWK3kou33Lut3hFuuNhzg5gt9qc3ZRHXa9yV3BZvvcMTLb"
+    entrypoint: ["/bin/sh", "/container-entrypoint.sh"]
+    volumes:
+      - ./ipfs-cluster/cluster-secret:/data/ipfs-cluster/secret
+      - ./ipfs-cluster/cluster3:/data/ipfs-cluster
+      - ./ipfs-cluster/cluster-entrypoint.sh:/container-entrypoint.sh
+    depends_on:
+      - ipfs4
+      - cluster0
+    ports:
+      - "9101:9094"
+    networks:
+      - ipfs-net
+
+  # === MongoDB Replica Set ===
+  mongo1:
+    image: mongo:6
+    container_name: mongo1
+    restart: always
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo1-data:/data/db
+    command: >
+      bash -c "
+        mongod --replSet rs0 --bind_ip_all &
+        until mongosh --host localhost --eval 'db.runCommand({ ping: 1 })' >/dev/null 2>&1; do
+          echo 'Waiting for MongoDB to start...'; sleep 2;
+        done;
+        if ! mongosh --host localhost --eval 'rs.status()' | grep -q 'myState'; then
+          echo 'Initializing replica set...';
+          mongosh --host localhost --eval \"
+            rs.initiate({
+              _id: 'rs0',
+              members: [
+                { _id: 0, host: 'mongo1:27017' },
+                { _id: 1, host: 'mongo2:27017' },
+                { _id: 2, host: 'mongo3:27017' }
+              ]
+            })
+          \"
+        else
+          echo 'Replica set already initialized.';
+        fi;
+        tail -f /dev/null
+      "
+    networks:
+      - ipfs-net
+
+  mongo2:
+    image: mongo:6
+    container_name: mongo2
+    restart: always
+    volumes:
+      - mongo2-data:/data/db
+    command: ["mongod", "--replSet", "rs0"]
+    networks:
+      - ipfs-net
+
+  mongo3:
+    image: mongo:6
+    container_name: mongo3
+    restart: always
+    volumes:
+      - mongo3-data:/data/db
+    command: ["mongod", "--replSet", "rs0"]
+    networks:
+      - ipfs-net
+
+  # === Redis Master/Replica/Sentinels ===
+  redis-master:
+    image: redis:7
+    container_name: redis-master
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-master-data:/data
+    networks:
+      - ipfs-net
+
+  redis-replica1:
+    image: redis:7
+    container_name: redis-replica1
+    restart: always
+    command: ["redis-server", "--replicaof", "redis-master", "6379"]
+    volumes:
+      - redis-replica1-data:/data
+    networks:
+      - ipfs-net
+
+  redis-replica2:
+    image: redis:7
+    container_name: redis-replica2
+    restart: always
+    command: ["redis-server", "--replicaof", "redis-master", "6379"]
+    volumes:
+      - redis-replica2-data:/data
+    networks:
+      - ipfs-net
+
+  redis-sentinel1:
+    image: redis:7
+    container_name: redis-sentinel1
+    restart: always
+    ports:
+      - "26379:26379"
+    volumes:
+      - ./redis-sentinel-entrypoint.sh:/usr/local/bin/redis-sentinel-entrypoint.sh
+    entrypoint: ["bash", "/usr/local/bin/redis-sentinel-entrypoint.sh"]
+    networks:
+      - ipfs-net
+
+  redis-sentinel2:
+    image: redis:7
+    container_name: redis-sentinel2
+    restart: always
+    ports:
+      - "26380:26379"
+    volumes:
+      - ./redis-sentinel-entrypoint.sh:/usr/local/bin/redis-sentinel-entrypoint.sh
+    entrypoint: ["bash", "/usr/local/bin/redis-sentinel-entrypoint.sh"]
+    networks:
+      - ipfs-net
+
+  redis-sentinel3:
+    image: redis:7
+    container_name: redis-sentinel3
+    restart: always
+    ports:
+      - "26381:26379"
+    volumes:
+      - ./redis-sentinel-entrypoint.sh:/usr/local/bin/redis-sentinel-entrypoint.sh
+    entrypoint: ["bash", "/usr/local/bin/redis-sentinel-entrypoint.sh"]
+    networks:
+      - ipfs-net
+
+  # === Backend ===
+  nodejs:
+    build:
+      context: ./nodejs-app
+    container_name: nodejs
+    ports:
+      - "3000:3000"
+    depends_on:
+      - ipfs1
+      - cluster0
+      - mongo1
+      - redis-sentinel1
+    volumes:
+      - nodejs-uploads:/app/uploads
+    networks:
+      - ipfs-net
+
+  # === Frontend ===
+  frontend:
+    image: node:18
+    container_name: frontend
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    ports:
+      - "5173:5173"
+    depends_on:
+      - nodejs
+    networks:
+      - ipfs-net
+
+  mongodb_exporter:
+    image: percona/mongodb_exporter:0.40.0
+    container_name: mongodb_exporter
+    restart: always
+    ports:
+      - "9216:9216"
+    command:
+      - "--mongodb.uri=mongodb://mongodb_exporter_user:securepassword@mongo1:27017,mongo2:27017,mongo3:27017/admin?replicaSet=rs0"
+      - "--collect-all"
+      - "--log.level=debug"
+    networks:
+      - ipfs-net
+
+  nginx:
+    image: nginx:stable
+    container_name: nginx
+    restart: always
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/logs:/var/log/nginx
+    depends_on:
+      - frontend
+      - nodejs
+    networks:
+      - ipfs-net
+    command: [ "nginx", "-g", "daemon off;", "-c", "/etc/nginx/nginx.conf" ]
+
+networks:
+  ipfs-net:
+    driver: bridge
+
+volumes:
+  ipfs1-data:
+  ipfs2-data:
+  ipfs3-data:
+  ipfs4-data:
+  mongo1-data:
+  mongo2-data:
+  mongo3-data:
+  redis-master-data:
+  redis-replica1-data:
+  redis-replica2-data:
+  nodejs-uploads:
+  grafana-data:
